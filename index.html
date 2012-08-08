@@ -1,0 +1,328 @@
+<!doctype html>
+<html>
+	<head>
+		<title>Asshole Simon for Assholes</title>
+		<script type="text/javascript">
+			// CONSTANTS
+			var c, s,
+				canvas,
+				boardWidth = 800,
+				boardHeight = 600,
+				btnMargin = 10,
+				gridStartWidth = 2,
+				gridStartHeight = 2,
+				canInput = false,
+				buttons = [],
+				curSequence = [],
+				playerSequence = [],
+				highlightIndex = null,
+				clockSpeed = 750,
+				SequenceLength = 3;
+		
+			window.onload = function()
+			{
+				// Sound
+				s = new webkitAudioContext();
+				
+				canvas = document.getElementById("gameScreen");
+				canvas.width = boardWidth;
+				canvas.height = boardHeight;
+				c = canvas.getContext('2d');
+				CreateInitialBoard();
+				Game.Controller.AssignEvents();
+				Game.Sound.Initialize();
+				Game.Model.Start();
+				setInterval(Game.Model.Update, 1000 / 60);
+			}
+			
+			Game = {
+				Model:
+				{
+					Start : function()
+					{
+						this.Sequence.AddNew();
+						this.Sequence.Play();
+					},
+					Update : function()
+					{
+						Game.Drawing.Draw();
+					},
+					Sequence :
+					{
+						AddNew : function()
+						{
+							curSequence.push( Math.floor( Math.random() * buttons.length ) );
+						},
+						Play : function()
+						{
+							canInput = false; // disables the player
+							var cur = 0;
+							var timer = setInterval( function()
+							{
+								if (cur >= curSequence.length)
+								{
+									// Sequence is done playing
+									canInput = true;
+									highlightIndex = null;
+									clearInterval(timer);
+									return;
+								}
+								
+								Game.Sound.SetTone(buttons[curSequence[cur]].tone);
+								Game.Sound.Play();
+								highlightIndex = curSequence[cur++];
+								// Reset the highlight to provide a visible difference if a 
+								// button appears twice
+								setTimeout( function() { highlightIndex = null; }, clockSpeed / 2)
+								console.log("Highlighting: " + highlightIndex);
+							}, clockSpeed);
+						}
+					},
+					Button:
+					{
+						NewButton : function(x, y, color, width, height)
+						{
+							return {
+								x: x,
+								y: y,
+								color: color,
+								width: width,
+								height: height,
+								tone : Game.Sound.GenerateTileTone( color )
+							};
+						},
+						SubdivideButtons : function()
+						{
+							Game.Model.Button.SplitButton( Math.floor( Math.random() * buttons.length ) );
+						},
+						SplitButton : function(btnIndex)
+						{
+							color1 = Color.Random();
+							color2 = Color.Random();
+							btn = buttons[btnIndex];
+							if (btn.width >= btn.height)
+							{
+								// Split the button into left and right
+								var btnHeight = btn.height;
+								var btnWidth = ( btn.width - btnMargin ) / 2;
+								
+								var leftButton = this.NewButton(btn.x, btn.y, color1, btnWidth, btnHeight);
+								var rightButton = this.NewButton(btn.x + btnWidth + btnMargin, btn.y, color2, btnWidth, btnHeight);
+								
+								buttons.push(leftButton);
+								buttons.push(rightButton);
+							}
+							else
+							{
+								// Split the button into top and bottom
+								var btnHeight = (btn.height - btnMargin) / 2;
+								var btnWidth = btn.width;
+								
+								var topButton = this.NewButton(btn.x, btn.y, color1, btnWidth, btnHeight);
+								var bottomButton = this.NewButton(btn.x, btn.y + btnHeight + btnMargin, color2, btnWidth, btnHeight);
+								buttons.push(topButton);
+								buttons.push(bottomButton);
+							}
+							buttons.splice(btnIndex, 1);
+						}
+					}
+				},
+				Sound : 
+				{
+					Tones : {
+						// Constant tones, based on the original Simon board game
+						GREEN : 415,
+						RED : 310,
+						YELLOW : 252,
+						BLUE : 209,
+						ERROR : 45
+					},
+					GenerateTileTone : function(color)
+					{
+						var values = Color.HexToRGB(color);
+						var freq = ( values[0] + values[1] + values[2] ) * 1.5;
+						return freq;
+					},
+					oscillator : null,
+					Initialize : function()
+					{
+						this.oscillator = s.createOscillator();
+						this.oscillator.type = 1;
+					},
+					ClearTone : function()
+					{
+						this.oscillator.frequency.value = 0;
+					},
+					SetTone : function(tone)
+					{
+						this.oscillator.frequency.value = tone;
+					},
+					SetRandomTone : function()
+					{
+						this.SetTone( Math.floor( Math.random() * 1000 ) );
+					},
+					Play : function()
+					{
+						this.oscillator.connect(s.destination);
+						setTimeout( function() { Game.Sound.oscillator.disconnect() } , clockSpeed / 2 );
+					}
+				},
+				Drawing: 
+				{
+					Draw : function()
+					{
+						this.Clear();
+						this.DrawButtons();
+						this.DrawButtonHighlight();
+					},
+					Clear : function()
+					{
+						c.fillStyle = "#fff";
+						c.fillRect(0, 0, boardWidth, boardHeight);
+					},
+					DrawButtons : function()
+					{
+						for (var btn in buttons)
+						{
+							btn = buttons[btn];
+							c.fillStyle = btn.color;
+							c.fillRect(btn.x, btn.y, btn.width, btn.height);
+							//c.strokeRect(btn.x, btn.y, btn.width, btn.height);
+						}
+					},
+					DrawButtonHighlight : function()
+					{
+						if (highlightIndex != null)
+						{
+							var btn = buttons[highlightIndex];
+							c.fillStyle = "rgba(255, 255, 255, .8)";
+							c.fillRect(btn.x, btn.y, btn.width, btn.height);
+						}
+					}
+				},
+				Controller:
+				{
+					AssignEvents : function()
+					{
+						canvas.onclick = this.Click;
+					},
+					Click : function(e)
+					{
+						adjX = e.pageX - canvas.offsetLeft;
+						adjY = e.pageY - canvas.offsetTop;
+						Game.Controller.Interface.CheckTileClick(adjX, adjY);
+					},
+					Interface:
+					{
+						CheckTileClick : function(x, y)
+						{
+							// Check which tile the mouse is in
+							for (var btnIndex in buttons)
+							{
+								btn = buttons[btnIndex];
+								if (this.PointIsInRectangle(x, y, btn.x, btn.y, btn.width, btn.height))
+								{
+									// We have a successful click
+									console.log("Clicked on tile " + btnIndex);
+									playerSequence.push( btnIndex );
+									if (playerSequence[playerSequence.length - 1] == curSequence[playerSequence.length - 1])
+									{
+										// Correct tone
+										Game.Sound.SetTone(buttons[btnIndex].tone);
+										Game.Sound.Play();
+										if (playerSequence.length == curSequence.length)
+										{
+											if (playerSequence.length % SequenceLength == 0)
+											{
+												SequenceLength++;
+												curSequence = [];
+												Game.Model.Button.SubdivideButtons();
+											}
+		
+											playerSequence = [];
+											setTimeout( function() {
+												Game.Model.Sequence.AddNew();
+												Game.Model.Sequence.Play();
+											}, clockSpeed );
+										}
+									}
+									else
+									{
+										// SUCK IT
+										Game.Sound.SetTone(Game.Sound.Tones.ERROR);
+										Game.Sound.Play();
+									}
+									return;
+								}
+							}
+						},
+						PointIsInRectangle : function(px, py, rx1, ry1, width, height)
+						{
+							// Ugly arguments, but they should be self-explanatory
+							if (px > rx1 &&
+								py > ry1 &&
+								px < rx1 + width &&
+								py < ry1 + height)
+								return true;
+							else
+								return false;
+						}
+					}
+				}
+			}
+			
+			function CreateInitialBoard()
+			{
+				var btnWidth = ( boardWidth - btnMargin * (gridStartWidth + 1) ) / gridStartWidth;
+				var btnHeight = ( boardHeight - btnMargin * (gridStartHeight + 1) ) / gridStartHeight;
+				for (var h = 0; h < gridStartHeight; h++)
+				{
+					for (var w = 0; w < gridStartWidth; w++)
+					{
+						buttons.push( Game.Model.Button.NewButton(w * btnWidth + (w + 1) * btnMargin, h * btnHeight + (h + 1) * btnMargin, Color.Random(), btnWidth, btnHeight) );
+					}
+				}
+			}
+			
+			Color =
+			{
+				SplitColor : function(color)
+				{
+				
+				},
+				Random : function()
+				{
+					return this.RgbToHex( Math.floor( Math.random() * 255 ), Math.floor( Math.random() * 255 ), Math.floor( Math.random() * 255 ) );
+				},
+				ComponentToHex : function(c) {
+					var hex = c.toString(16);
+					return hex.length == 1 ? "0" + hex : hex;
+				},
+				
+				RgbToHex : function(r, g, b) {
+					return "#" + this.ComponentToHex(r) + this.ComponentToHex(g) + this.ComponentToHex(b);
+				},
+				
+				HexToRGB : function(hex)
+				{
+					hex = hex.replace("#", "");
+					var r = parseInt(hex.substring(0, 2), 16);
+					var g = parseInt(hex.substring(2, 4), 16);
+					var b = parseInt(hex.substring(4, 6), 16);
+					return [r, g, b];
+				}
+			}
+		</script>
+	</head>
+	<body>
+		<style type="text/css">
+			#gameScreen
+			{
+				position: absolute;
+				top: 0;
+				left: 0;
+			}
+		</style>
+		<canvas id="gameScreen">Sorry, no canvas support.</canvas>
+	</body>
+</html>
